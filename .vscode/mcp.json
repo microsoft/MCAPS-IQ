@@ -21,30 +21,21 @@
 			}
 		},
 
-		// Optional: Obsidian Intelligence Layer (OIL) — knowledge layer MCP server
-		// https://github.com/JinLee794/Obsidian-Intelligence-Layer
+		// Obsidian Intelligence Layer (OIL) — knowledge layer MCP server
+		// Subtree: mcp/oil (https://github.com/JinLee794/Obsidian-Intelligence-Layer)
+		// Setup: cd mcp/oil && npm install && npm run build
+		// If not configured, workflows fall back to stateless CRM-only operation.
 		// "oil": {
 		// 	"type": "stdio",
 		// 	"command": "node",
-		// 	"args": ["${input:oilServerPath}"],
+		// 	"args": ["mcp/oil/dist/index.js"],
 		// 	"env": {
 		// 		"OBSIDIAN_VAULT_PATH": "${input:obsidianVaultPath}"
 		// 	}
-		// 	// Provides 22 domain-specific tools: get_customer_context, prepare_crm_prefetch,
-		// 	// search_vault, query_notes, patch_note, promote_findings, check_vault_health, etc.
-		// 	// Setup: Clone https://github.com/JinLee794/Obsidian-Intelligence-Layer
-		// 	// Run: npm install && npm run build in the OIL directory
-		// 	// If not configured, all workflows fall back to stateless CRM-only operation (no breakage).
 		// },
 
 	},
 	"inputs": [
-		{
-			"id": "oilServerPath",
-			"type": "promptString",
-			"description": "Absolute path to the OIL dist/index.js (e.g., /Users/you/Obsidian-Intelligence-Layer/dist/index.js)",
-			"default": "${env:OIL_SERVER_PATH}"
-		},
 		{
 			"id": "obsidianVaultPath",
 			"type": "promptString",

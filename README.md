@@ -26,9 +26,16 @@ MCAPS Copilot Tools connects GitHub Copilot (in VS Code) to your MSX CRM and Mic
 ### Step 1: Clone and install
 ```bash
 git clone https://github.com/JinLee794/mcaps-copilot-tools.git
-cd mcaps-copilot-tools/mcp/msx
-npm install
+cd mcaps-copilot-tools
+
+# Install the MSX CRM MCP server
+cd mcp/msx && npm install && cd ../..
+
+# (Optional) Install the Obsidian Intelligence Layer
+cd mcp/oil && npm install && npm run build && cd ../..
 ```
+
+> **Note:** `mcp/msx` and `mcp/oil` are [git subtrees](https://www.atlassian.com/git/tutorials/git-subtree) — they live in this repo as normal files but are also maintained in their own standalone repos. No special clone flags needed.
 
 ### Step 2: Sign in to Azure
 
@@ -112,39 +119,36 @@ Copy-paste any of these into the Copilot chat window after you've started the MC
 
 ## Optional: Enable Obsidian Vault Integration
 
-If you use [Obsidian](https://obsidian.md/) as a local knowledge base, you can connect it via the **Obsidian Intelligence Layer (OIL)** — a domain-specific MCP server that turns your vault into a semantic knowledge graph for AI agents. Instead of raw file reads, OIL gives agents pre-indexed search, context-aware composites, and gated writes.
+The **[Obsidian Intelligence Layer (OIL)](https://github.com/JinLee794/Obsidian-Intelligence-Layer)** turns your local Obsidian vault into a durable knowledge layer for AI agents. Instead of starting every conversation from scratch, OIL gives agents persistent memory — customer context, meeting history, relationship maps, and accumulated insights — all indexed and queryable through MCP tools.
+
+OIL is included in this repo as a git subtree at `mcp/oil`.
 
 ### How to enable it
 
-1. **Clone and build OIL:**
+1. **Build OIL** (if you haven't already during setup):
    ```bash
-   git clone https://github.com/JinLee794/Obsidian-Intelligence-Layer.git
-   cd Obsidian-Intelligence-Layer
+   cd mcp/oil
    npm install
    npm run build
    ```
 
-2. Open `.vscode/mcp.json` in your editor.
-3. Find the commented-out `"oil"` block and uncomment it so it looks like this:
+2. Open `.vscode/mcp.json` and uncomment the `"oil"` block:
 
 ```jsonc
 "oil": {
     "type": "stdio",
     "command": "node",
-    "args": ["dist/index.js"],
-    "cwd": "/absolute/path/to/Obsidian-Intelligence-Layer",
+    "args": ["mcp/oil/dist/index.js"],
     "env": {
         "OBSIDIAN_VAULT_PATH": "${input:obsidianVaultPath}"
     }
 }
 ```
 
-4. When prompted, enter the absolute path to:
-   - **OIL server** (`dist/index.js` inside your OIL clone) — or set the `OIL_SERVER_PATH` environment variable.
-   - **Your Obsidian vault** (e.g., `/Users/yourname/Documents/MyVault`) — or set `OBSIDIAN_VAULT_PATH`.
-5. Click **Start** on `oil` in VS Code just like the other servers.
+3. When prompted, enter the absolute path to your Obsidian vault (e.g., `/Users/yourname/Documents/MyVault`) — or set `OBSIDIAN_VAULT_PATH` as an environment variable.
+4. Click **Start** on `oil` in VS Code just like the other servers.
 
-OIL exposes **22 domain-specific tools** including `get_customer_context`, `search_vault`, `prepare_crm_prefetch`, `promote_findings`, `check_vault_health`, and more. See the [OIL README](https://github.com/JinLee794/Obsidian-Intelligence-Layer) for the full tools reference.
+OIL exposes **22 domain-specific tools** including `get_customer_context`, `search_vault`, `prepare_crm_prefetch`, `promote_findings`, `check_vault_health`, and more. See the [OIL README](mcp/oil/README.md) for the full tools reference.
 
 > **Don't use Obsidian?** No worries — everything works without it. The system operates statelessly (CRM-only) and you can bring your own persistence layer if desired.
 
@@ -156,10 +160,11 @@ OIL exposes **22 domain-specific tools** including `get_customer_context`, `sear
 |---|---|---|
 | `.github/copilot-instructions.md` | Global Copilot behavior — the "system prompt" | **Yes** — your main customization lever |
 | `.github/instructions/` | Operational rules loaded by keyword match | **Yes** — add your team's workflow gates |
-| `.github/skills/` | Role-specific playbooks (SE, CSA, CSAM, Specialist) | **Yes** — tailor to your operating model |
+| `.github/skills/` | 27 atomic domain skills (loaded on demand by keyword match) | **Yes** — tailor to your operating model |
 | `.github/prompts/` | Reusable prompt templates (slash commands) | **Yes** — create workflows you repeat often |
 | `.vscode/mcp.json` | MCP server definitions (CRM, WorkIQ, Obsidian) | **Yes** — add/remove data sources |
-| `mcp/msx/` | Node.js MCP server source code (the engine) | Optional — works out of the box |
+| `mcp/msx/` | MSX CRM MCP server *(subtree: [microsoft/msx-copilot-mcp](https://github.com/microsoft/msx-copilot-mcp))* | Optional — works out of the box |
+| `mcp/oil/` | Obsidian Intelligence Layer *(subtree: [JinLee794/Obsidian-Intelligence-Layer](https://github.com/JinLee794/Obsidian-Intelligence-Layer))* | Optional — enables persistent vault memory |
 | `docs/` | Architecture docs and supporting material | Reference only |
 
 > **Start here:** Open any file in `.github/` and read it. They're all plain Markdown. See the [Customization](#customization--make-it-yours) section for step-by-step examples.
@@ -186,16 +191,29 @@ These tools let Copilot interact with MSX CRM on your behalf:
 | `update_task` / `close_task` | ⚠️ Updates or closes an existing task *(write — staged)* |
 | `update_milestone` | ⚠️ Updates milestone status or details *(write — staged)* |
 
-### Role Skills
+### Role Cards & Atomic Skills
 
-The system includes pre-built role definitions that shape how Copilot approaches your workflows:
+The system uses **role cards** (identity and accountability rules) combined with **27 atomic skills** (focused domain playbooks). Role cards live in `.github/instructions/` and are loaded by keyword match; atomic skills live in `.github/skills/` and are loaded on demand.
 
-- **[Solution Engineer](.github/skills/Solution_Engineer_SKILL.md)** — technical win execution, architecture reviews, proof-of-concept work
-- **[Cloud Solution Architect](.github/skills/Cloud_Solution_Architect_SKILL.md)** — cloud architecture, migration planning, technical design
-- **[Customer Success Account Manager](.github/skills/CSAM_SKILL.md)** — milestone delivery, consumption tracking, customer health
-- **[Specialist](.github/skills/Specialist_SKILL.md)** — deal qualification, pipeline support, solution area depth
+**Role cards** (one per MCAPS role):
 
-You don't need to memorize these — just tell Copilot your role and it will apply the right behavior.
+- **[Specialist](.github/instructions/role-card-specialist.instructions.md)** — pipeline creation, opportunity qualification, Stage 2-3 progression
+- **[Solution Engineer](.github/instructions/role-card-se.instructions.md)** — technical proof, architecture reviews, task hygiene
+- **[Cloud Solution Architect](.github/instructions/role-card-csa.instructions.md)** — execution readiness, architecture handoff, delivery ownership
+- **[Customer Success Account Manager](.github/instructions/role-card-csam.instructions.md)** — milestone health, adoption, value realization, commit gates
+
+**Atomic skills** (examples — see `.github/skills/` for all 27):
+
+| Skill | What it does |
+|---|---|
+| `pipeline-qualification` | Qualifies new opportunities at Stages 1-2 |
+| `milestone-health-review` | Reviews committed milestone health at Stages 4-5 |
+| `proof-plan-orchestration` | Manages technical proof plans for SE |
+| `risk-surfacing` | Proactively identifies deal/execution risks |
+| `handoff-readiness-validation` | Validates handoff quality between roles |
+| `workiq-query-scoping` | Scopes M365 searches for effective retrieval |
+
+You don't need to memorize these — just tell Copilot your role and it will load the right card and activate relevant skills automatically.
 
 ### WorkIQ (M365 Evidence Retrieval)
 
@@ -309,17 +327,28 @@ Here's what ships out of the box and what each piece does:
 ├── copilot-instructions.md          ← Global behavior: MCP routing, role detection, response style
 ├── instructions/
 │   ├── intent.instructions.md       ← "Why does this agent exist?" — strategic intent
-│   ├── msx-role-and-write-gate.md   ← Confirmation gates before any CRM write
-│   ├── crm-entity-schema.md         ← CRM field names so Copilot builds correct queries
-│   ├── connect-hooks.md             ← Evidence capture for Connect impact reporting
-│   └── obsidian-vault.md            ← Vault integration conventions
-├── skills/
-│   ├── Solution_Engineer_SKILL.md   ← SE workflows: proofs, architecture, technical wins
-│   ├── Cloud_Solution_Architect_SKILL.md ← CSA workflows: design, migration, delivery
-│   ├── CSAM_SKILL.md                ← CSAM workflows: milestone health, adoption, renewal
-│   ├── Specialist_SKILL.md          ← Specialist workflows: pipeline, deal shaping
-│   ├── WorkIQ_Query_Scoping_SKILL.md ← How to scope M365 searches effectively
-│   └── Skill_Authoring_Best_Practices_SKILL.md ← Guide for writing your own skills
+│   ├── mcem-flow.instructions.md    ← MCEM process model, stages, exit criteria
+│   ├── shared-patterns.instructions.md ← Shared definitions and runtime contract
+│   ├── role-card-specialist.instructions.md  ← Specialist identity + accountability
+│   ├── role-card-se.instructions.md          ← Solution Engineer identity + accountability
+│   ├── role-card-csa.instructions.md         ← Cloud Solution Architect identity + accountability
+│   ├── role-card-csam.instructions.md        ← CSAM identity + accountability
+│   ├── msx-role-and-write-gate.instructions.md ← Confirmation gates before any CRM write
+│   ├── crm-entity-schema.instructions.md     ← CRM field names so Copilot builds correct queries
+│   ├── crm-query-strategy.instructions.md    ← CRM read query scoping strategy
+│   ├── connect-hooks.instructions.md         ← Evidence capture for Connect impact reporting
+│   └── obsidian-vault.instructions.md        ← Vault integration conventions
+├── skills/                          ← 27 atomic domain skills (loaded on demand)
+│   ├── pipeline-qualification-SKILL.md       ← Qualify new opportunities (Stages 1-2)
+│   ├── milestone-health-review-SKILL.md      ← Committed milestone health (Stages 4-5)
+│   ├── proof-plan-orchestration-SKILL.md     ← Technical proof management
+│   ├── risk-surfacing-SKILL.md               ← Proactive risk identification
+│   ├── handoff-readiness-validation-SKILL.md ← Cross-role handoff quality
+│   ├── mcem-stage-identification-SKILL.md    ← Identify current MCEM stage
+│   ├── workiq-query-scoping-SKILL.md         ← Scope M365 searches effectively
+│   ├── skill-authoring-best-practices-SKILL.md ← Guide for writing your own skills
+│   ├── ... (19 more atomic skills)           ← See directory for full list
+│   └── _legacy/                              ← Archived monolithic role skills (reference only)
 ├── prompts/
 │   ├── prepare-meeting.prompt.md    ← Pre-populate meeting notes from vault + CRM
 │   ├── process-meeting-notes.prompt.md ← Structure raw notes into formatted vault entries
@@ -364,15 +393,17 @@ Before any deal review, verify:
 - [ ] Next steps have owners and dates
 ```
 
-#### 3. Customize a role skill for your team
+#### 3. Customize role cards or atomic skills
 
-The skills in `.github/skills/` define how Copilot approaches each role. Open any `*_SKILL.md` file and adjust it. The YAML frontmatter controls when it activates:
+**Role cards** (in `.github/instructions/`) define each role's identity, accountability, and boundaries. **Atomic skills** (in `.github/skills/`) define focused domain playbooks. Each has YAML frontmatter that controls when it activates.
+
+Skill frontmatter:
 
 ```yaml
 ---
-name: csam-msx-ops
-description: 'Customer Success Account Manager operating skill for MSX/MCEM...'
-argument-hint: 'Provide opportunity/milestone IDs, customer health signals...'
+name: milestone-health-review
+description: 'Reviews committed milestone health for CSAM at MCEM Stages 4-5...'
+argument-hint: 'Provide opportunityId(s) or run across all CSAM-owned committed milestones'
 ---
 ```
 
@@ -380,7 +411,15 @@ argument-hint: 'Provide opportunity/milestone IDs, customer health signals...'
 - `description` — **the trigger**: Copilot matches this against your request to decide whether to load the skill. Make it keyword-rich.
 - `argument-hint` — tells Copilot what inputs to ask for
 
-**Tip:** You can duplicate a skill and create a variation for a sub-team (e.g., a `CSAM_FastTrack_SKILL.md` with FastTrack-specific milestone patterns).
+Role card frontmatter (instructions):
+
+```yaml
+---
+description: "Specialist (STU) role identity card. Mission, MCEM stage accountability..."
+---
+```
+
+**Tip:** You can duplicate a skill and create a variation for a sub-team (e.g., a `milestone-health-review-fasttrack-SKILL.md` with FastTrack-specific patterns).
 
 #### 4. Create reusable prompt templates
 
@@ -472,7 +511,7 @@ Everything works fine without it. Obsidian integration is entirely optional.
 The MCP servers can work with any MCP-compatible client, but VS Code with GitHub Copilot is the recommended and best-supported experience.
 
 **How do I write a good skill or instruction file?**
-See [Skill_Authoring_Best_Practices_SKILL.md](.github/skills/Skill_Authoring_Best_Practices_SKILL.md) for a full checklist. The short version: keep the `description` keyword-rich so Copilot finds it, structure the body as a step-by-step workflow, and don't exceed ~150 lines per file.
+See [skill-authoring-best-practices-SKILL.md](.github/skills/skill-authoring-best-practices-SKILL.md) for a full checklist. The short version: keep the `description` keyword-rich so Copilot finds it, structure the body as a step-by-step workflow, and don't exceed ~150 lines per file.
 
 **I edited a file in `.github/` but Copilot doesn't seem to use it.**
 Check the `description` field in the YAML frontmatter — Copilot matches against those keywords. If the description doesn't overlap with how you phrase your request, it won't load. Try adding more trigger phrases to the description.

@@ -1,30 +1,41 @@
-# MCAPS Copilot Tools — Architecture (CRM + WorkIQ MCP usage)
+# MCAPS Copilot Tools — Architecture
 
-This document describes how MCP-based workflows should split retrieval between MSX (Dynamics 365 CRM) and WorkIQ (Microsoft 365 data such as Teams, meetings, Outlook, and SharePoint/OneDrive).
-
-Copilot CLI is an ideal integration point for these workflows, where role skills, `msx-crm` tools, and WorkIQ retrieval (`ask_work_iq`) can be composed in one operational loop.
+This document describes how the three MCP servers — **MSX CRM**, **WorkIQ**, and **OIL (optional)** — compose into a unified workflow orchestrated by Copilot. Each server owns a single domain; Copilot orchestrates across them using role cards and atomic skills.
 
 ## System Overview
 
 ```mermaid
-flowchart LR
-  U[User / Copilot Chat] --> C["MCP Client (stdio)"]
-  C --> S["MCAPS Copilot Tools MCP Server\n(mcp-server/src/index.js)"]
+flowchart TB
+  U["User / Copilot Chat"] --> Agent["Copilot Agent\n(.github/ instructions + skills)"]
 
-  C --> F["Local Filesystem Control Plane\n(Obsidian vault + .vscode overlays)"]
+  Agent --> MSX["msx-crm MCP Server\n(mcp/msx/src/index.js)"]
+  Agent --> WIQ["workiq MCP Server\n(ask_work_iq)"]
+  Agent -.->|optional| OIL["OIL MCP Server\n(mcp/oil/dist/index.js)"]
 
-  S --> T["Tool Router\n(registerTools in src/tools.js)"]
-  T --> A["Auth Service\n(src/auth.js)\nAzure CLI token (az account get-access-token)"]
-  T --> R["CRM Client\n(src/crm.js)\nrequest / requestAllPages"]
+  MSX --> CRM[("MSX CRM / Dynamics 365\n/api/data/v9.2")]
+  WIQ --> M365[("Microsoft 365\nTeams · Outlook · SharePoint")]
+  OIL -.-> Vault[("Obsidian Vault\nCustomers · Meetings · People")]
 
-  A --> R
-  R --> D[("MSX CRM / Dynamics 365\n/api/data/v9.2")]
-  F --> C
+  subgraph "Context Loading (workspace-local)"
+    CI[".github/copilot-instructions.md\nTier 0 — always loaded"]
+    RC["instructions/role-card-*.instructions.md\nTier 1 — by keyword match"]
+    SK["skills/*-SKILL.md\nTier 2 — on demand"]
+  end
 
-  T --> O["Tool Responses\n(JSON text payload)"]
-  O --> C
-  C --> U
+  Agent --> CI
+  Agent --> RC
+  Agent --> SK
 ```
+
+### How the servers compose
+
+| Server | Domain | Data Direction | What it provides |
+|---|---|---|---|
+| **msx-crm** | CRM system of record | Read / Write (staged) | Opportunities, milestones, tasks, owners, pipeline state |
+| **workiq** | M365 collaboration evidence | Read only | Teams chats, meeting transcripts, emails, SharePoint docs |
+| **OIL** *(optional)* | Durable knowledge layer | Read / Write (gated) | Customer context, relationship graphs, meeting history, agent insights, CRM identifier bridge |
+
+Copilot **orchestrates** — each MCP server stays focused on its domain. OIL never calls CRM or M365 internally; instead, Copilot uses OIL to resolve identifiers (VAULT-PREFETCH), then routes to CRM/WorkIQ with scoped queries.
 
 ## Local Filesystem as Orchestration Substrate
 
@@ -54,24 +65,54 @@ The vault is optional. Without it, the agent operates statelessly (CRM-only). If
 
 ## MCP Routing Model (Recommended)
 
-- Use `msx-crm` tools for structured CRM entities and write-intent planning:
+```mermaid
+flowchart LR
+  Q["User request"] --> Role{"Role resolved?"}
+  Role -->|yes| Route{"What data needed?"}
+  Role -->|no| Resolve["Resolve role via crm_whoami\n+ role card"]
+  Resolve --> Route
+
+  Route -->|CRM state| MSX["msx-crm tools\nopportunities, milestones, tasks"]
+  Route -->|M365 evidence| WIQ["ask_work_iq\nTeams, email, meetings"]
+  Route -->|customer context\nidentifiers| OIL["OIL tools (optional)\nget_customer_context\nprepare_crm_prefetch"]
+  Route -->|cross-source| Multi["Multi-medium synthesis"]
+
+  OIL -->|"VAULT-PREFETCH:\nGUIDs, team, history"| MSX
+  OIL -->|"people → customer\nresolution"| WIQ
+  Multi --> MSX
+  Multi --> WIQ
+  Multi -.-> OIL
+```
+
+### Routing rules
+
+- Use **msx-crm** tools for structured CRM entities and write-intent planning:
   - opportunities, milestones, tasks, owners, statuses, dates, and dry-run updates.
-- Use WorkIQ MCP (`ask_work_iq`) for M365 collaboration evidence:
+- Use **WorkIQ** MCP (`ask_work_iq`) for M365 collaboration evidence:
   - Teams chats/channels, meeting transcripts/notes, Outlook email/calendar, SharePoint/OneDrive files.
+- Use **OIL** (when available) for durable context and scoping:
+  - `get_customer_context` for VAULT-PREFETCH before CRM queries (provides GUIDs, team, history).
+  - `resolve_people_to_customers` for entity resolution between WorkIQ passes.
+  - `promote_findings` to persist agent insights for future sessions.
+  - `search_vault` for semantic search across customer knowledge.
 - Keep systems distinct in outputs:
   - CRM = system-of-record state.
   - WorkIQ = supporting evidence and context.
+  - Vault = durable knowledge and context bridge.
+- **Without OIL**: agent operates statelessly — CRM and WorkIQ still work, but queries are unscoped (no VAULT-PREFETCH) and insights are not persisted between sessions.
 
 ## Role-Skill Binding + Context Stack Transparency
 
-- Selected workflow role must map to local skill file under `.github/skills/<Role>_SKILL.md`.
-- Execution context should explicitly include the resolved skill contract alongside user prompt and repo instructions.
+- Role identity is resolved by matching the user's self-identified role to a **role card** under `.github/instructions/role-card-*.instructions.md`.
+- Once the role is resolved, Copilot activates relevant **atomic skills** from `.github/skills/*-SKILL.md` based on keyword matching against the request.
+- The original monolithic role skills (e.g., `Solution_Engineer_SKILL.md`) are archived in `.github/skills/_legacy/` — see the [legacy README](../.github/skills/_legacy/README.md) for the decomposition mapping.
+- Execution context should explicitly include the resolved role card and active skills alongside user prompt and repo instructions.
 - UI should expose a collapsible Context Stack panel showing:
-  - active role and mapped skill file,
+  - active role card and mapped atomic skills,
   - key prompt/context blocks used for orchestration,
   - provenance labels (`user input`, `repo instruction`, `skill`, `derived`).
 
-## Read Path (Current)
+## MSX CRM Read Path
 
 Read tools call `crmClient.request(...)` or `crmClient.requestAllPages(...)`, which:
 - Ensure auth through `authService.ensureAuth()`.
@@ -82,19 +123,27 @@ Read tools call `crmClient.request(...)` or `crmClient.requestAllPages(...)`, wh
 ```mermaid
 sequenceDiagram
   participant User
-  participant MCP as MCP Tool (e.g., crm_query/get_milestones)
+  participant Agent as Copilot Agent
+  participant OIL as OIL (optional)
+  participant MCP as msx-crm Tool
   participant Auth as Auth Service
-  participant CRMClient as CRM Client
   participant CRM as MSX CRM
 
-  User->>MCP: Invoke read tool
-  MCP->>CRMClient: request or requestAllPages
-  CRMClient->>Auth: ensureAuth()
-  Auth-->>CRMClient: Bearer token
-  CRMClient->>CRM: GET /api/data/v9.2/...
-  CRM-->>CRMClient: 200 JSON (+ optional @odata.nextLink)
-  CRMClient-->>MCP: normalized result
-  MCP-->>User: content[] text response
+  User->>Agent: "Show Contoso milestones"
+  opt OIL available
+    Agent->>OIL: get_customer_context("Contoso")
+    OIL-->>Agent: GUIDs, team, recent history
+  end
+  Agent->>MCP: get_milestones(opportunityId from vault or user)
+  MCP->>Auth: ensureAuth()
+  Auth-->>MCP: Bearer token
+  MCP->>CRM: GET /api/data/v9.2/...
+  CRM-->>MCP: 200 JSON (+ optional @odata.nextLink)
+  MCP-->>Agent: normalized result
+  opt OIL available
+    Agent->>OIL: promote_findings (persist insights)
+  end
+  Agent-->>User: formatted response
 ```
 
 ### Primary Read Tools
@@ -104,21 +153,24 @@ sequenceDiagram
 - `get_milestones`, `get_milestone_activities`
 - `get_task_status_options`
 
-## Update Path (Current Implementation)
+## MSX CRM Update Path
 
 Update-oriented tools validate inputs and execute CRM write operations.
 
 ```mermaid
 sequenceDiagram
   participant User
-  participant MCP as MCP Tool (update/create/close)
+  participant Agent as Copilot Agent
+  participant MCP as msx-crm Tool
   participant CRM as MSX CRM
 
-  User->>MCP: Invoke update_milestone / create_task / update_task / close_task
+  User->>Agent: "Create task under Cloud Assessment milestone"
+  Agent->>MCP: create_task (validated payload)
   MCP->>MCP: Validate IDs + build payload
   MCP->>CRM: POST/PATCH (validated payload)
   CRM-->>MCP: success/error response
-  MCP-->>User: { success: true } or structured error
+  MCP-->>Agent: { success: true } or structured error
+  Agent-->>User: Confirmation with details
 ```
 
 ### Update-Oriented Tools
@@ -129,7 +181,7 @@ sequenceDiagram
 
 ## Planned Approval-Based Write Flow
 
-`mcp-server/STAGED_OPERATIONS.md` describes a staged pattern (`stage -> review -> execute`) for safe production writes:
+`mcp/msx/STAGED_OPERATIONS.md` describes a staged pattern (`stage -> review -> execute`) for safe production writes:
 - Stage operation with preview.
 - User approves/cancels.
 - Execute approved operation against CRM.
@@ -137,18 +189,68 @@ sequenceDiagram
 This is design guidance and not yet wired into `src/tools.js`.
 
 ## Key Implementation Files
-- `mcp-server/src/index.js` — server bootstrap and stdio transport.
-- `mcp-server/src/tools.js` — MCP tool contracts and dry-run update behavior.
-- `mcp-server/src/auth.js` — Azure CLI token acquisition and token metadata.
-- `mcp-server/src/crm.js` — OData request layer, retries, pagination.
 
-## Companion WorkIQ Pattern
+### MSX CRM Server (`mcp/msx/`)
+- `src/index.js` — server bootstrap and stdio transport.
+- `src/tools.js` — MCP tool contracts and dry-run update behavior.
+- `src/auth.js` — Azure CLI token acquisition and token metadata.
+- `src/crm.js` — OData request layer, retries, pagination.
 
-When user asks for cross-source evidence (for example, “summarize customer blockers from meetings + Teams + docs + email”):
-1. Build a scoped fact map (goal, entities, timeframe, source types).
-2. Run WorkIQ retrieval first for M365 evidence.
-3. Read CRM milestones/tasks with `msx-crm` tools.
-4. Return a joined output with explicit sections for `CRM facts` and `M365 evidence`.
+### OIL Server (`mcp/oil/`) — optional
+- `src/index.ts` — server bootstrap and stdio transport.
+- `src/tools/orient.ts` — orient tools (get_vault_context, get_customer_context, etc.).
+- `src/tools/retrieve.ts` — retrieve tools (search_vault, prepare_crm_prefetch, etc.).
+- `src/tools/write.ts` — gated write tools (promote_findings, etc.).
+- `src/tools/composite.ts` — cross-domain composite operations.
+- `src/graph.ts` — in-memory knowledge graph from vault wikilinks.
+- `src/search.ts` — 3-tier search (lexical → fuzzy → semantic).
+
+## Cross-Source Workflow (CRM + WorkIQ + Vault)
+
+When user asks for cross-source evidence (for example, "summarize customer blockers from meetings + Teams + docs + email"):
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant Agent as Copilot Agent
+  participant OIL as OIL (optional)
+  participant WIQ as WorkIQ
+  participant MSX as msx-crm
+
+  User->>Agent: "Summarize Contoso blocker risk this week"
+
+  opt OIL available (VAULT-PREFETCH)
+    Agent->>OIL: get_customer_context("Contoso")
+    OIL-->>Agent: GUIDs, team, recent meetings, open items
+  end
+
+  Agent->>WIQ: ask_work_iq (scoped by customer + timeframe)
+  WIQ-->>Agent: M365 evidence (Teams, meetings, email)
+
+  opt OIL available (entity resolution)
+    Agent->>OIL: resolve_people_to_customers(names from M365)
+    OIL-->>Agent: person → customer mappings
+  end
+
+  Agent->>MSX: get_milestones + list_opportunities (scoped by vault GUIDs)
+  MSX-->>Agent: CRM pipeline state
+
+  opt OIL available (VAULT-PROMOTE)
+    Agent->>OIL: promote_findings (persist insights)
+  end
+
+  Agent-->>User: Merged brief — CRM facts + M365 evidence + vault context
+```
+
+### Steps
+1. **VAULT-PREFETCH** (if OIL available) — resolve customer identifiers, team, and history from vault.
+2. **WorkIQ retrieval** — scoped M365 search using vault-provided context.
+3. **Entity resolution** (if OIL available) — map people from M365 results to vault customers.
+4. **CRM read** — scoped queries using vault-provided GUIDs.
+5. **VAULT-PROMOTE** (if OIL available) — persist agent findings for future sessions.
+6. Return a joined output with explicit sections for `CRM facts`, `M365 evidence`, and (optionally) `Vault context`.
+
+**Without OIL:** Steps 1, 3, and 5 are skipped. CRM queries use user-provided identifiers instead of vault-resolved GUIDs. Insights are not persisted.
 
 ## Copilot CLI Example Flow (Simple)
 
@@ -156,9 +258,10 @@ Use this when you want one practical loop with minimal setup overhead.
 
 1. Open Copilot CLI in this repo (`copilot`) where MCP servers are already configured.
 2. State role + objective in one line (example: “Role: Solution Engineer. Summarize blocker risk for Contoso this week.”).
-3. Ask for WorkIQ evidence first (`ask_work_iq`) limited to timeframe + source types.
-4. Ask for CRM facts second (`msx-crm` milestones/tasks/opportunity status).
-5. Ask for a final merged brief in two sections only: `CRM facts` and `M365 evidence`.
+3. If OIL is available, Copilot auto-runs `get_customer_context` for VAULT-PREFETCH.
+4. Ask for WorkIQ evidence first (`ask_work_iq`) limited to timeframe + source types.
+5. Ask for CRM facts second (`msx-crm` milestones/tasks/opportunity status).
+6. Ask for a final merged brief in sections: `CRM facts`, `M365 evidence`, and `Vault context` (if OIL active).
 
 For write-intent changes, keep the same flow but require explicit approval before any create/update/close action.
 
