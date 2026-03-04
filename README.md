@@ -1,5 +1,6 @@
 # MCAPS Copilot Tools
-![alt text](./docs/assets/banner.png)
+
+![alt text](docs/assets/banner.png)
 > **Your AI-powered sales operations toolkit for MCAPS.**
 > Talk to Copilot in plain English to manage MSX opportunities, milestones, and tasks — no coding required.
 
@@ -15,6 +16,7 @@ MCAPS Copilot Tools connects GitHub Copilot (in VS Code) to your MSX CRM and Mic
 ---
 
 ## Quick Start (5 Minutes)
+![alt text](docs/assets/quickstart.png)
 
 > **Prerequisites:**
 > - **Connected to the Microsoft corporate VPN** (required to reach internal CRM endpoints)
@@ -22,6 +24,7 @@ MCAPS Copilot Tools connects GitHub Copilot (in VS Code) to your MSX CRM and Mic
 > - A GitHub Copilot-compatible IDE such as [VS Code](https://code.visualstudio.com/) (or [VS Code Insiders](https://code.visualstudio.com/insiders/)) with the [GitHub Copilot extension](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat), **or** the [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli/installing-github-copilot-in-the-cli)
 > - [Node.js 18+](https://nodejs.org/)
 > - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
+
 
 ### Step 1: Clone and install
 ```bash
@@ -216,7 +219,7 @@ OIL exposes **22 domain-specific tools** including `get_customer_context`, `sear
 ---
 
 ## Project Layout
-
+![alt text](docs/assets/project-layout.png)
 | Folder | What's inside | Editable? |
 |---|---|---|
 | `.github/copilot-instructions.md` | Global Copilot behavior — the "system prompt" | **Yes** — your main customization lever |
@@ -232,12 +235,11 @@ OIL exposes **22 domain-specific tools** including `get_customer_context`, `sear
 
 ## What's Included
 
-### MSX CRM MCP Tools
+<details>
+<summary><strong>MSX CRM MCP Tools</strong> — read/write MSX opportunities, milestones, and tasks</summary>
 
 These tools let Copilot interact with MSX CRM on your behalf:
 
-| Tool | What it does |
-|---|---|
 | Tool | What it does |
 |---|---|
 | `crm_whoami` | Checks who you are in MSX (validates authentication) |
@@ -252,7 +254,10 @@ These tools let Copilot interact with MSX CRM on your behalf:
 | `update_task` / `close_task` | ⚠️ Updates or closes an existing task *(write — staged)* |
 | `update_milestone` | ⚠️ Updates milestone status or details *(write — staged)* |
 
-### Role Cards & Atomic Skills
+</details>
+
+<details>
+<summary><strong>Role Cards & Atomic Skills</strong> — 4 role cards + 27 domain skills, auto-loaded by keyword</summary>
 
 The system uses **role cards** (identity and accountability rules) combined with **27 atomic skills** (focused domain playbooks). Role cards live in `.github/instructions/` and are loaded by keyword match; atomic skills live in `.github/skills/` and are loaded on demand.
 
@@ -276,7 +281,10 @@ The system uses **role cards** (identity and accountability rules) combined with
 
 You don't need to memorize these — just tell Copilot your role and it will load the right card and activate relevant skills automatically.
 
-### WorkIQ (M365 Evidence Retrieval)
+</details>
+
+<details>
+<summary><strong>WorkIQ (M365 Evidence Retrieval)</strong> — search Teams, Outlook, Meetings, and SharePoint</summary>
 
 WorkIQ connects Copilot to your Microsoft 365 data. It can search across:
 
@@ -286,6 +294,67 @@ WorkIQ connects Copilot to your Microsoft 365 data. It can search across:
 - **SharePoint/OneDrive** — latest proposal/design docs and revision context
 
 Learn more: [WorkIQ overview (Microsoft Learn)](https://learn.microsoft.com/en-us/microsoft-365-copilot/extensibility/workiq-overview)
+
+</details>
+
+<details>
+<summary><strong>OIL — Obsidian Intelligence Layer</strong> — persistent knowledge graph from your local Obsidian vault (optional)</summary>
+
+[OIL](mcp/oil/README.md) turns your local [Obsidian](https://obsidian.md/) vault into a durable, queryable knowledge layer for the agent. Without it, the system works — but statelessly. With it, Copilot gains **persistent memory** across sessions: customer context, meeting history, relationship maps, and accumulated insights.
+
+**Why Obsidian?**
+- **100% local** — your notes never leave your machine. No cloud sync required.
+- **Graph-based** — Obsidian's wikilink model gives OIL a pre-built relationship graph (people ↔ customers ↔ meetings ↔ projects) queryable in O(1) via a pre-indexed backlink map.
+- **Markdown-native** — plain `.md` files you own forever. No proprietary format, no vendor lock-in.
+- **Works offline** — Obsidian doesn't even need to be running. OIL reads the vault folder directly.
+
+**What OIL provides (22 tools):**
+
+| Category | Tools | Purpose |
+|---|---|---|
+| **Orient** | `get_vault_context`, `get_customer_context`, `get_person_context`, `query_graph`, `resolve_people_to_customers` | Understand who/what/where before querying CRM |
+| **Retrieve** | `search_vault`, `query_notes`, `find_similar_notes` | 3-tier search: lexical → fuzzy → semantic embeddings |
+| **Write** | `patch_note`, `capture_connect_hook`, `draft_meeting_note`, `update_customer_file`, `create_customer_file`, + more | Gated writes with diffs and human confirmation |
+| **Composite** | `prepare_crm_prefetch`, `correlate_with_vault`, `promote_findings`, `check_vault_health`, `get_drift_report` | Cross-MCP workflows that bridge vault ↔ CRM ↔ M365 |
+
+**Setting up your own vault:**
+
+1. **Create a vault** — Open [Obsidian](https://obsidian.md/) and create a new vault (or point to an existing folder of Markdown files).
+
+2. **Add the folder structure OIL expects** — at minimum:
+   ```
+   YourVault/
+   ├── Customers/       # One .md per customer (e.g., Contoso.md)
+   ├── People/          # One .md per contact (e.g., Alice Smith.md)
+   ├── Meetings/        # Meeting notes with wikilinks to customers/people
+   └── oil.config.yaml  # Optional — customize folder paths and field names
+   ```
+   See [bench/fixtures/vault/](mcp/oil/bench/fixtures/vault/) for example files you can copy as templates.
+
+3. **Build and configure OIL:**
+   ```bash
+   cd mcp/oil && npm install && npm run build && cd ../..
+   ```
+
+4. **Enable in `.vscode/mcp.json`** — uncomment the `oil` block and set your vault path:
+   ```jsonc
+   "oil": {
+       "type": "stdio",
+       "command": "node",
+       "args": ["mcp/oil/dist/index.js"],
+       "env": {
+           "OBSIDIAN_VAULT_PATH": "/absolute/path/to/YourVault"
+       }
+   }
+   ```
+
+5. Click **Start** on `oil` in VS Code — the agent now has persistent memory.
+
+> **Don't use Obsidian?** Everything works without it. You can also bring any MCP-compatible note server — just wire it into `.vscode/mcp.json`.
+
+See the full [OIL README](mcp/oil/README.md) for configuration options, tool details, and architecture.
+
+</details>
 
 ---
 
@@ -319,12 +388,14 @@ Staged operations expire automatically after 10 minutes if not acted on.
 
 ## How It Works (Under the Hood)
 
+![alt text](docs/assets/how-it-works.png)
+
 ```
 You (Copilot Chat)
   │
-  ├── asks about CRM data ──→ msx-crm MCP server ──→ MSX Dynamics 365
+  ├── asks about CRM data  ──→ msx-crm MCP server ──→ MSX Dynamics 365
   ├── asks about M365 data ──→ workiq MCP server  ──→ Teams / Outlook / SharePoint
-  └── asks about notes     ──→ OIL (optional)          ──→ Your Obsidian Vault
+  └── asks about notes     ──→ OIL (optional)     ──→ Your Obsidian Vault
 ```
 
 1. You type a question or action in Copilot chat.
